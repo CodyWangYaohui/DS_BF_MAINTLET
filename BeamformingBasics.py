@@ -3,8 +3,6 @@
 """
 Collection of simplified tools for delay-and-sum beamforming prediction and
 analysis with Uniform Linear Arrays (ULAs).
-
-
 Author:
     Fabio Casagrande Hirono - fchirono@gmail.com
     April 2021
@@ -15,7 +13,7 @@ Author:
 import numpy as np
 
 # instantiate a random number generator
-rng = np.random.default_rng()
+rand_no_generator = np.random.default_rand_no_generator()
 
 
 class SensorArray:
@@ -45,36 +43,23 @@ class SensorArray:
         self.XY, self.d, self.m = self.create_unif_lin_array(L, M)
 
         
-    def create_unif_lin_array(self, L, M):
-        """
+    """
         Creates a uniform linear array with length 'L' and 'M' elements
         distributed over the 'x' axis. By convenience, 'M' must be odd.
-        
-        Parameters
-        ----------
-        L : float
-            Array length [m]
-        
-        M : int
-            Number of sensors (must be odd)
-        
+
         Returns
-        -------
-        XY_array : (2, M) array_like
-            Numpy array with (x,y) coordinates of array elements
+        XY_array : (2, M) array_like {Numpy array with (x,y) coordinates of array elements}
+            eg. [[x0=-0.5,x1= 0, x2=0.5],
+                 [y0=   0,y1= 0,   y2=0]] Since it's an array of microphones, assuming position 
+                 only changes on x-axis.
         
-        d : float
-            Array inter-element spacing [m]
+        d : float {Array inter-element spacing [m]}
         
         m_indices : 
             Array of indices from -(M-1)/2 to +(M-1)/2, with index 0 being at
             the center.
-        
-        Notes
-        -----
-        By convenience, the number of elements 'M' in the array must always be
-        odd.
-        """
+    """
+    def create_unif_lin_array(self, L, M):
     
         M_even_error = "Number of sensors must be odd"
         assert M%2, M_even_error
@@ -85,9 +70,12 @@ class SensorArray:
         print("Array inter sensor spacing is {} m".format(d))
     
         # array sensor indices
+        # middle sensor as 0, sensor before and after numbered accordingly
         m_indices = np.linspace(-(M//2), M//2, M, dtype=int)
     
         # array elements spatial coordinates
+        # middle sensor located at (0, 0), before and after own location accordingly
+        # locations vary only on x-axis for calculation simplicty
         XY_array = np.zeros((2, M))
         XY_array[0, :] = np.linspace(-L/2, L/2, M)
     
@@ -97,23 +85,19 @@ class SensorArray:
 def delay_signal(x, t0, fs):
     """
     Delay a time-domain signal 'x', sampled at 'fs' Hz, by 't0' seconds.
-
     Parameters
     ----------
     x : (N_dft,) array_like
         Numpy vector of length 'N_dft' containing signal of interest
-
     t0 : float
         Time by which to delay signal 'x', in seconds
         
     fs : int
         Sampling frequency, in Hz
-
     Returns
     -------
     x_delayed : (N,)
         Time-delayed copy of input signal 'x'
-
     """
     
     X_f = np.fft.rfft(x)
@@ -163,7 +147,7 @@ def create_narrowband_pulse(A, T, f0, fs):
 
     t_pulse = np.linspace(0, T-dt, N_pulse)
     p_pulse = A*np.sin(2*np.pi*f0*t_pulse
-                       + rng.uniform(0, 2*np.pi, 1)[0])*np.hanning(N_pulse)
+                       + rand_no_generator.uniform(0, 2*np.pi, 1)[0])*np.hanning(N_pulse)
     
     return p_pulse
 
@@ -173,7 +157,6 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     """
     Create a Numpy array of time-domain signals simulating a recording with a
     Uniform Linear Array
-
     Parameters
     ----------
     SensorArrayObj : instance of SensorArray class
@@ -201,12 +184,10 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     SNR_dB : float, optional
         Signal-to-noise ratio, in decibels, as observed at sensor elements. The
         default is None (no noise at array sensors).
-
     Returns
     -------
     p_array : (M, T*fs) array_like
         Numpy array containing 'M' channels of array signals over time.
-
     Notes
     -----
     This model assumes the source signal arrives at the array as a plane wave.
@@ -222,7 +203,7 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     """
     
     # instantiate a random number generator
-    rng = np.random.default_rng()
+    rand_no_generator = np.random.default_rand_no_generator()
     
     # direction of arrival of signals (plane wave propagation)
     theta0 = theta0_deg*np.pi/180
@@ -246,7 +227,7 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
         # if SNR_dB is given, add random noise to array signals at desired SNR
         signal_var = np.var(p_source)
         noise_var = signal_var/(10**(SNR_dB/10))
-        p_array = rng.normal(0., np.sqrt(noise_var), (SensorArrayObj.M, N))
+        p_array = rand_no_generator.normal(0., np.sqrt(noise_var), (SensorArrayObj.M, N))
     
     # for each sensor in array...
     for m in range(SensorArrayObj.M):
@@ -322,4 +303,3 @@ def delayandsum_beamformer(SensorArrayObj, p_array, theta, weights, fs,
     y_beamformer *= 1./np.sum(weights**2)
     
     return y_beamformer
-
