@@ -13,7 +13,7 @@ Author:
 import numpy as np
 
 # instantiate a random number generator
-rand_no_generator = np.random.default_rand_no_generator()
+rand_no_generator = np.random.default_rng()
 
 
 class SensorArray:
@@ -50,7 +50,7 @@ class SensorArray:
         Returns
         XY_array : (2, M) array_like {Numpy array with (x,y) coordinates of array elements}
             eg. [[x0=-0.5,x1= 0, x2=0.5],
-                 [y0=   0,y1= 0,   y2=0]] Since it's an array of microphones, assuming position 
+                 [   y0=0,y1= 0,   y2=0]] Since it's an array of microphones, assuming position 
                  only changes on x-axis.
         
         d : float {Array inter-element spacing [m]}
@@ -61,8 +61,8 @@ class SensorArray:
     """
     def create_unif_lin_array(self, L, M):
     
-        M_even_error = "Number of sensors must be odd"
-        assert M%2, M_even_error
+        # M_even_error = "Number of sensors must be odd"
+        # assert M%2, M_even_error
     
         # inter sensor spacing
         d = L/(M-1)
@@ -81,35 +81,6 @@ class SensorArray:
     
         return XY_array, d, m_indices
         
-
-def delay_signal(x, t0, fs):
-    """
-    Delay a time-domain signal 'x', sampled at 'fs' Hz, by 't0' seconds.
-    Parameters
-    ----------
-    x : (N_dft,) array_like
-        Numpy vector of length 'N_dft' containing signal of interest
-    t0 : float
-        Time by which to delay signal 'x', in seconds
-        
-    fs : int
-        Sampling frequency, in Hz
-    Returns
-    -------
-    x_delayed : (N,)
-        Time-delayed copy of input signal 'x'
-    """
-    
-    X_f = np.fft.rfft(x)
-    
-    N_dft = x.shape[0]
-    df = fs/N_dft
-    f = np.linspace(0, fs-df, N_dft)[:N_dft//2+1]
-    
-    X_f_delayed = X_f*np.exp(-1j*2*np.pi*f*t0)
-    
-    return np.fft.irfft(X_f_delayed)
-
 
 def create_narrowband_pulse(A, T, f0, fs):
     """
@@ -150,16 +121,14 @@ def create_narrowband_pulse(A, T, f0, fs):
                        + rand_no_generator.uniform(0, 2*np.pi, 1)[0])*np.hanning(N_pulse)
     
     return p_pulse
-
-
-def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
+def create_array_signals(mic_array, p_source, t_initial, T, theta0_deg,
                          fs, c0=1500, SNR_dB=None):
     """
     Create a Numpy array of time-domain signals simulating a recording with a
     Uniform Linear Array
     Parameters
     ----------
-    SensorArrayObj : instance of SensorArray class
+    mic_array : instance of SensorArray class
         Instance containing array geometry information
     
     p_source : (N,) array_like
@@ -209,7 +178,7 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     theta0 = theta0_deg*np.pi/180
     
     # vector of times-of-arrival for each sensor
-    times_of_arrival = -SensorArrayObj.m*SensorArrayObj.d*np.cos(theta0)/c0
+    times_of_arrival = -mic_array.m*mic_array.d*np.cos(theta0)/c0
     
     N_initial= int(t_initial*fs)
     N_final = N_initial + p_source.shape[0]
@@ -221,16 +190,16 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     if SNR_dB is None:
         # if SNR_dB is not given, initialize signals as array of zeros (no
         # noise)
-        p_array = np.zeros((SensorArrayObj.M, N))
+        p_array = np.zeros((mic_array.M, N))
     
     else:
         # if SNR_dB is given, add random noise to array signals at desired SNR
         signal_var = np.var(p_source)
         noise_var = signal_var/(10**(SNR_dB/10))
-        p_array = rand_no_generator.normal(0., np.sqrt(noise_var), (SensorArrayObj.M, N))
+        p_array = rand_no_generator.normal(0., np.sqrt(noise_var), (mic_array.M, N))
     
     # for each sensor in array...
-    for m in range(SensorArrayObj.M):
+    for m in range(mic_array.M):
         # ...adds signal at time 't_initial'...
         p_array[m, N_initial:N_final] += p_source
         
@@ -240,31 +209,65 @@ def create_array_signals(SensorArrayObj, p_source, t_initial, T, theta0_deg,
     return p_array
 
 
-
-def delayandsum_beamformer(SensorArrayObj, p_array, theta, weights, fs,
-                           c0=1500):
+def delay_signal(x, t0, fs):
     """
+    Delay a time-domain signal 'x', sampled at 'fs' Hz, by 't0' seconds.
+    Parameters
+    ----------
+    x : (N_dft,) array_like
+        Numpy vector of length 'N_dft' containing signal of interest
+    t0 : float
+        Time by which to delay signal 'x', in seconds
+        
+    fs : int
+        Sampling frequency, in Hz
+    Returns
+    -------
+    x_delayed : (N,)
+        Time-delayed copy of input signal 'x'
+    """
+    
+    # FFT 之后的signal
+    X_f = np.fft.rfft(x)
+    # total取样个数
+    N_dft = x.shape[0]
+    # 1/取样时间
+    df = fs/N_dft
+
+    # NOTE get an array {0, sample_freq} with 采样点数量个element
+    f = np.linspace(0, fs-df, N_dft)
+    # print("the initial array is of shape ", f.shape)
+    # print("the initial array is: ", f)
+
+    # NOTE  然后slice前一半？
+    f = f[:N_dft//2+1]
+    # print("the array after slicing is of shape ", f.shape)
+    # print("the array after slicing is: ", f)
+
+    # NOTE DK how does np.exp(an imaginery array: {imaginery number * 2pi * array * scalar}) work
+    X_f_delayed = X_f*np.exp(-1j*2*np.pi*f*t0)
+    
+    return np.fft.irfft(X_f_delayed)
+
+
+
+"""
     Calculates simplified delay-and-sum beamformer for a given array geometry 
     and sensor signals, over a set of pre-determined directions.
     
-    Parameters
-    ----------
-    SensorArrayObj : instance of SensorArray class
+    mic_array : instance of SensorArray class 
         Instance containing array geometry information
         
-    p_array : (M, T*fs) array_like
+    p_array : (M, T*fs) array_like (sensor数量 by 取样点数量)
         Numpy array containing 'M' channels of array signals over time.
     
-    theta : (N_theta,) array_like
+    theta : (N_theta,) array_like （所有想要focus的方向）
         Numpy vector containing set of desired steering ('look') directions, in radians.
     
-    weights : (M,) array_like
+    weights : (M,) array_like （weight assigned for summation）
         Numpy vector containing array amplitude weighting coefficients.
     
-    fs : int
-        Sampling frequency, in Hz.
-    
-    c0 : float, optional
+    c0 : float, optional （340 in air）
         Speed of sound, in meters per second. The default is 1500 (water).
     
     Returns
@@ -280,26 +283,46 @@ def delayandsum_beamformer(SensorArrayObj, p_array, theta, weights, fs,
     serious beamforming applications, one should seriously consider a more
     optimized implementation.
     """
-    
+def delayandsum_beamformer(mic_array, p_array, theta, desired_dir, weights, fs,
+                           c0=1500):
+    print("BF called")
     N_theta = theta.shape[0]
     
+    # (sensor no, sampling pt no)
     M, N_time = p_array.shape
     
-    # initialize array of beamformer data (angle, time)
+    # getting the BF optimization of output for each steering direction {combining results from all microphones}
+    # (steering direction no, sampling pt no)
     y_beamformer = np.zeros((N_theta, N_time))
+
+    center_combined_to_ret = np.zeros(N_time)
 
     # for each direction...
     for theta_i in range(N_theta):
-        
-        # calculate candidate time delays
-        time_delays = -SensorArrayObj.m*SensorArrayObj.d*np.cos(theta[theta_i])/c0
-    
+
+        '''calculate candidate time delays'''
+        # mic_array.m: Numpy array of integer sensor indices, from -(M-1)/2 to +(M-1)/2; shape of {1, M}
+        # mic_array.d: Inter sensor spacing [m]; shape of 1
+        # theta[theta_i]: the current steering direction; shape of 1
+        # c0: sound speed
+        # time_delays = -mic_array.m * mic_array.d * np.cos( theta[theta_i] ) / c0
+        time_delays = -mic_array.XY[0, :] * np.cos( theta[theta_i] ) / c0
+
         # and for each sensor...
         for m in range(M):
             # delay and sum signals
-            y_beamformer[theta_i, :] += weights[m]*delay_signal(p_array[m, :], -time_delays[m], fs)
+            signal_after_sync = delay_signal(p_array[m, :], -time_delays[m], fs)
+            # sum signal with weights
+            y_beamformer[theta_i, :] += weights[m]* signal_after_sync
+
+            # for later comparison with center sensor output 
+            if (m == 1 or m == 2) and theta_i == desired_dir:
+                center_combined_to_ret += signal_after_sync
+            
+
     
     # compensate for Nweights / No. of sensors in array
     y_beamformer *= 1./np.sum(weights**2)
+    center_combined_to_ret /= 2
     
-    return y_beamformer
+    return y_beamformer, center_combined_to_ret
